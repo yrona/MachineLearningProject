@@ -16,8 +16,21 @@ We analyze data collected by accelerometers on the belt, forearm, arm, and dumbe
 ### Load Libraries
 ```{r loadlibs}
   library(caret)
+  library(rpart)
+  library(randomForest)
+  library(rattle)
 ```
 
+```{r displayfuncs, echo=FALSE}
+  #Some functions to allow pretty display of numbers
+  dispperc <- function(x) {
+    return(paste(format(x*100,digits = 3),"%", sep = ""))
+  }
+  
+  dispunit <-function(x) {
+    return(format(x,format="d", big.mark=','))
+  }
+```
 ### Download
 
 ```{r cache=FALSE, echo=TRUE}
@@ -31,7 +44,7 @@ knitr::read_chunk('loaddata.r')
 ```
 ```{r loaddata}
   data.subdirectory <- "data"
-  skip.download <- TRUE
+  skip.download <- FALSE #Set to true if you already have the data and are satisfied
   
   training.url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
   testing.url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
@@ -56,7 +69,7 @@ knitr::read_chunk('loaddata.r')
   
 ```
 
-Training data consists of `r format(nrow(training.data),format="d", big.mark=',')` observations of `r format(ncol(training.data),format="d", big.mark=',')` variables. Testing data consists of `r format(nrow(testing.data),format="d", big.mark=',')` observations of `r format(ncol(testing.data),format="d", big.mark=',')` variables.
+Training data consists of `r dispunit(nrow(training.data))` observations of `r dispunit(ncol(training.data))` variables. Testing data consists of `r dispunit(nrow(testing.data))` observations of `r dispunit(ncol(testing.data))` variables.
 
 ###Pre-Processing
 
@@ -92,22 +105,109 @@ The columns removed to avoid training on spurious correlations were:
   bad.columns
 ```
 
-We therefore use the following `r format(length(good.columns),format="d", big.mark=',')` columns as predictors:
+We therefore use the following `r dispunit(length(good.columns))` columns as predictors:
 ``` {r echo=FALSE}
   good.columns[!good.columns %in% "classe"]
 ```
 
-We now partition our training data into two groups, one used to train the machine learning system, and the other to validate it (this is distinct from the testing data set we downloaded with `r format(nrow(testing.data),format="d", big.mark=',')` observations we downloaded from the Internet
+We now partition our training data into two groups, one used to train the machine learning system, and the other to validate it (this is distinct from the testing data set we downloaded with `r dispunit(nrow(testing.data))` observations we downloaded from the Internet
 
 ```{r partition}
-  set.seed(314159)
-  train.idx <- createDataPartition(clean.training.data$classe, p=0.66, list=FALSE)
+  set.seed(10000) # For reproducibility
+  training.percentage <- 2/3 #The percentage of the data that will be used for training 
+                              #The remainder will be used for model validation
+  
+  train.idx <- createDataPartition(clean.training.data$classe, p=training.percentage, list=FALSE)
   
   ml.training.data <- clean.training.data[train.idx, ]
   ml.testing.data <- clean.training.data[-train.idx, ]
 ```
 
-To train the models used in machine learning, we use a data set with `r format(nrow(ml.training.data),format="d", big.mark=',')` observations of `r format(ncol(ml.training.data),format="d", big.mark=',')` variables. We will then validate it with `r format(nrow(ml.testing.data),format="d", big.mark=',')` observations of `r format(ncol(ml.testing.data),format="d", big.mark=',')` variables.
+To train the models used in machine learning, we use a data set with `r dispunit(nrow(ml.training.data))` observations of `r dispunit(ncol(ml.training.data))` variables. We will then validate it with `r dispunit(nrow(ml.testing.data))` observations of `r dispunit(ncol(ml.testing.data))` variables.
+
+#Machine Learning
+
+We will explore thre different forms of predictive modeling all based around decision trees:
+
+1. Simplified Decision Tree Model
+2. Complex Decision Tree Model
+3. Random Forest Model
+
+## A Simple Tree Model
+``` {r buildtree }
+  tree.model <- train(classe ~ ., method = "rpart", data = ml.training.data)
+  
+```
+
+A plot of the tree appears below:
+``` {r plottree }
+  fancyRpartPlot(tree.model$finalModel)
+```
+
+We can immediately see a significant problem: the tree will never classify the exercise class "D" correctly.
+
+Testing the tree using the data segment set aside for validation results in the following confusion matrix:
+
+``` {r validatetree }
+  prediction.Tree <- predict(tree.model, ml.testing.data, type = "raw")
+  cfm.Tree <- confusionMatrix(prediction.Tree,ml.testing.data$classe)
+  
+  accuracy.Tree <- cfm.Tree$overall["Accuracy"]
+  
+  cfm.Tree
+```
+
+This model is not very good.  Its predictions are accurate `r dispperc(accuracy.Tree)` of the time.  It is useful, however, in being simple enough that people can make predictions by inspection rather than needing to use a computer.
+
+## Complex Decision Tree
+``` {r buildtree2 }
+  tree.model2 <- rpart(classe ~ .,  data = ml.training.data, method = "class")
+  
+```
+
+A plot of the tree appears below:
+``` {r plottree2 }
+  fancyRpartPlot(tree.model2)
+```
+
+With many more nodes, the tree ia not easily comprehended by a human being.
+
+Testing the tree using the data segment set aside for validation results in the following confusion matrix:
+
+``` {r validatetree2 }
+  prediction.Tree2 <- predict(tree.model2, ml.testing.data, type = "class")
+  cfm.Tree2 <- confusionMatrix(prediction.Tree2,ml.testing.data$classe)
+  accuracy.Tree2 <- cfm.Tree2$overall["Accuracy"]
+  cfm.Tree2
+```
+
+We see across the board there are improvements in specifity and sensitivity.  This more complex model, with an accuracy of `r dispperc(accuracy.Tree2)`, has better predictive power.  It is, however, less useful than the simpler model if one wants to identify the parameters that have the greatest predictive power by eye.
+
+## Random Forest
+
+A random forest is an ensemble of simple decision trees, built on subsets of the data. Each decision tree will provide an independent prediction given a set of predictors.  In theory, most of the decision trees will provide the correct answer, and so the most common prediction produced by the individual trees is used as the prediction of the ensemble.
+
+``` {r buildforest }
+  forest.model <- randomForest(classe ~ . , data=ml.training.data)
+  prediction.forest <- predict(forest.model,ml.testing.data, type = "class")
+  cfm.Forest <- confusionMatrix(prediction.forest,ml.testing.data$classe)
+  
+  accuracy.Forest <- cfm.Forest$overall["Accuracy"]
+  cfm.Forest
+```
+
+The result is outstanding!!!  In terms of specificity and sensitivity, the random forest provides nearly perfect predictions. Its predictive accuracy is `r dispperc(accuracy.Forest)`. However, the inner workings of the model are obscured, and as a result a person cannot easily identify which predictor values constitute good performance of the exercise, and which combinations represent which common mistakes in the physical exercise.
+
+However, for our needs, making predictions for our test set, it is precisely what we need.
+
+#Predictions
+
+```{r finalpredict}
+
+  prediction.test.data <- predict(forest.model,testing.data, type = "class")
+  
+  prediction.test.data
+```
 
 #Appendix 1: KNITR
 
