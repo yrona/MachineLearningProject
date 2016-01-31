@@ -1,0 +1,125 @@
+---
+title: "Machine Learning Course Project"
+author: "Yilmaz Rona"
+date: "January 30, 2016"
+output: html_document
+---
+
+# Introduction
+
+We analyze data collected by accelerometers on the belt, forearm, arm, and dumbell of 6 participants as they performed barbell lifts correctly and incorrectly in 5 different ways as reported in [Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.](http://groupware.les.inf.puc-rio.br/work.jsf?p1=11201). A summary of the data collection may be found on [their website](http://groupware.les.inf.puc-rio.br/har#ixzz3yn3Qh9aj).
+
+# Analysis
+
+## Data Download and Preprocessing
+
+### Load Libraries
+```{r loadlibs}
+  library(caret)
+```
+
+### Download
+
+```{r cache=FALSE, echo=TRUE}
+#See Appendix titled KNITR at end for the  loaded code
+knitr::read_chunk('loaddata.r')
+```
+
+```{r prepdatadir, echo=FALSE}
+```
+```{r downloadurl, echo=FALSE}
+```
+```{r loaddata}
+  data.subdirectory <- "data"
+  skip.download <- TRUE
+  
+  training.url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+  testing.url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+  data.locations <- data.frame(url = c(training.url,testing.url), 
+                               file = c("training.csv","testing.csv"),
+                               fullpath = c("",""),
+                               row.names = c("training","testing"), 
+                               stringsAsFactors=FALSE)
+  
+  
+  for (i in 1:nrow(data.locations)) {
+    data.locations[i,"fullpath"] <- downloadmyurl(data.locations[i,"url"],
+                                                  data.locations[i,"file"],
+                                                  data.subdirectory, 
+                                                  inhibit.download = skip.download)
+  }
+  
+  my.na.strings <-c("NA","#DIV/0!","")
+    
+  training.data <- read.csv(data.locations["training","fullpath"], na.strings=my.na.strings)
+  testing.data  <- read.csv(data.locations["testing","fullpath"], na.strings=my.na.strings)
+  
+```
+
+Training data consists of `r format(nrow(training.data),format="d", big.mark=',')` observations of `r format(ncol(training.data),format="d", big.mark=',')` variables. Testing data consists of `r format(nrow(testing.data),format="d", big.mark=',')` observations of `r format(ncol(testing.data),format="d", big.mark=',')` variables.
+
+###Pre-Processing
+
+```{r cache=FALSE,echo=TRUE}
+#See Appendix titled KNITR at end for the  loaded code
+knitr::read_chunk('prepdata.r')
+```
+```{r prepfunctions, echo=FALSE}
+```
+
+
+We first drop variables that are unhelpful: variables with too many NA values. We then remove variables that shouldn't be used as predictors because any correlation would be spurious (such as timestamps).
+
+```{r preprocess}
+
+#Only keep columns where more than 25% of the data is NA
+good.columns <- cols.good.NA.Percentages(training.data, min.threshold = .25, cols.to.pass = c("classe"))
+  
+#Drop columns that can only have spurious correlations
+bad.patterns <- c("timestamp","window")
+bad.columns <- c("X","user_name")
+for (i in bad.patterns) {
+  bad.columns <- c(bad.columns,grep(i,good.columns,value = TRUE))
+}
+#Purge any column name appearing in vector good.columns that also is in bad.columns
+good.columns <- good.columns[!good.columns %in% bad.columns]
+
+clean.training.data <- subset(training.data,select = good.columns)
+```
+
+The columns removed to avoid training on spurious correlations were:
+``` {r echo=FALSE}
+  bad.columns
+```
+
+We therefore use the following `r format(length(good.columns),format="d", big.mark=',')` columns as predictors:
+``` {r echo=FALSE}
+  good.columns[!good.columns %in% "classe"]
+```
+
+We now partition our training data into two groups, one used to train the machine learning system, and the other to validate it (this is distinct from the testing data set we downloaded with `r format(nrow(testing.data),format="d", big.mark=',')` observations we downloaded from the Internet
+
+```{r partition}
+  set.seed(314159)
+  train.idx <- createDataPartition(clean.training.data$classe, p=0.66, list=FALSE)
+  
+  ml.training.data <- clean.training.data[train.idx, ]
+  ml.testing.data <- clean.training.data[-train.idx, ]
+```
+
+To train the models used in machine learning, we use a data set with `r format(nrow(ml.training.data),format="d", big.mark=',')` observations of `r format(ncol(ml.training.data),format="d", big.mark=',')` variables. We will then validate it with `r format(nrow(ml.testing.data),format="d", big.mark=',')` observations of `r format(ncol(ml.testing.data),format="d", big.mark=',')` variables.
+
+#Appendix 1: KNITR
+
+## Data Downloading
+From loaddata.r
+```{r prepdatadir, echo=TRUE, eval=FALSE}
+```
+```{r downloadurl, echo=TRUE, eval=FALSE}
+```
+
+## Data Preprocessing
+From prepdata.r
+```{r prepfunctions, echo=TRUE, eval=FALSE}
+```
+
